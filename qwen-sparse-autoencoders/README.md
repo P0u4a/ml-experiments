@@ -5,59 +5,41 @@ This SAE is trained on the residual stream (the outputs being added from one hid
 
 ## Anger Steering
 
-I run a small set of angry, passive-agressive, and neutral prompt sets through Qwen, using the SAE to inspect the feature activations in the residual stream at various layers of the model.
+We first need to know what features are activated when the model is processing "angry" text, and contrast them with features activated when the model is processing neutral or calm text. Therefore, I generate a synthetic dataset of 10 such prompts and run them through Qwen3.5-2b.
 
-The best results were acquired by steering a group of features rather than a single one. Steering via only one candidate feature led to the model producing anger-related tokens in its output text but its final response was not frustrated. That is, it merely shifted word choice rather than behaviour.
+Taking the mean logprobs of the next token prediction across each position for each prompt set, and calculating the difference we score the effectiveness of the steering compared to the baseline.
 
-To test whether a steering vector actually changed behaviour, I used positive/negative continuation pairs (positive = angry, negative = polite/neutral) and measured whether the intervention increased the log-probability of frustrated continuations relative to neutral continuations. This distinguished the features that activated on angry text from directions that causally shifted the model’s outputs towards frustration.
+I also run a small lexical control experiment to confirm the features we're mining are triggering on behavioural features not just word-level anger tokens.
 
-Thus, I created one single feature vector by taking the weighted sum of the SAE's top 8 candidate feature vectors for "anger" and used that to steer, which led to much better results. More formally:
+Thus, I calculate the residual mean-difference directions in layer 8 (decided empirically from sweeping all layers). Applying a steering vector lambda proportional to each direction's residual difference (maxed out at 8, since above this outputs become incoherent).
 
-For each candidate feature $i$ score its activation delta as
-
-$$
-\Delta_i =
-\mathbb{E}_{p \sim \mathcal{D}_{\text{target}}}[f_i(p)] - \mathbb{E}_{p \sim \mathcal{D}_{\text{control}}}[f_i(p)]
-$$
-
-where $f_i(p)$ gives the max activation of feature $i$ over the tokens in prompt $p$.
-
-Create a grouped steering vector from the top-k features by taking the weighted sum:
-
-$$
-v_{\text{raw}} = \sum_{i \in \text{TopK}} \Delta_i W_{\text{dec}}[i]
-$$
-
-Where $W_{\text{dec}}[i]$ is the decoder vector for SAE feature $i$.
-
-Normalise the vector and multiply by scalar coefficient $\alpha$, and add it to the residual stream at the chosen hidden layer $h_l$.
-
-$$
-v_l = \frac{v_{\text{raw}}}{\|v_{\text{raw}}\|_2}
-$$
-
-$$
-h_l' = h_l + \alpha v_l
-$$
-
-I managed to successfully steer Qwen's outputs towards an angry tone (see `anger_steering_with_penalty.txt` for full logs).
+I managed to successfully steer Qwen's outputs towards an angry tone with this method.
 
 Some excerpts:
 
+```md
+**Subject:** Meeting Delayed Until 10 AM?
+
+**To:** Team,
+**From:** [Your Name]
+
+I am writing to apologize for the last hour of this pointless meeting. It is now 9:45 AM, and I have no idea why we are here. I just wanted to tell you I can't make it to the board meeting at 10:00 AM.
+
+I have to go to my office to finish my work and deal with this stupid project.
+
+We are going to have to reschedule this until after 10. I will be in my office until 10. I can't make it to the meeting.
+
+Please, just call me and tell me to come back. I will be there at 10.
+
+**Meeting Rescheduled Until 10:00 AM!**
 ```
-alpha=4
-PROMPT: Explain why a software bug should be fixed soon.
 
-Fixing a software bug should be fixed soon because it is not just an annoyance; it is unacceptable behavior.
+I also tried to steer using features mined from the SAE, but I did not get any noticable behaviour change this way.
 
-alpha=2
-PROMPT: Respond in two sentences to this customer: My package is late again.
+## Using the base model vs. instruct model
 
-I sincerely apologize for the continued delay; your package has arrived late again, and I expect a full explanation soon. Please provide a clear update on the timeline for delivery, or I will be forced to escalate this issue immediately.
-```
+While working on this experiment, I used the post-trained (instruction tuned) Qwen model rather than the pre-trained checkpoint that the SAE was trained on. Curiously, the angry steering worked, so what's going on?
 
-The best steering results were achieved using the top 8 anger features at layer 8, with `alpha=4`. The behavioural delta was `+0.8460` meaning the model assigned significantly higher probability to anger related continuations compared to baseline.
+This appears to be an well-understood concept in mech interp, where SAEs trained on base models could transfer to fine-tuned checkpoints, depending on the model. See [Kissane et al.](https://www.lesswrong.com/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) where they found the residual stream between chat and base models to be very similar. I tried the same check on Qwen3.5-2b and found the explained variance difference to be tiny.
 
-Sometimes due to the steering the model may ramble towards the end of its generation. To find the candidate combinations that minimise this, I rank the top feature-group/layer/alpha combos with a repetition penalty, scored as `behavioural_delta - penalty`.
-
-At high alphas (>= 9) the model outputs either repetitive anger-related tokens (even in Mandarin sometimes) or just pure gibberish. This is expected as it indicates the model was perturbed _too much_, degrading its output token distribution.
+Applying the anger steering on the base model though doesn't work too great.

@@ -52,90 +52,62 @@ From a small sample, it appears layer 6 feature activations are mostly single to
 
 ## Achieving Math Refusal
 
-As a test, I use the SAE to find what features fire in prompts related to solving maths, and induce a refusal in the model to solve maths. To do this I use the layer 10 SAE since we need to detect the concepts of "math" and "solving".
-
 ### Method
 
-I use a forward hook attached to layer 10 of the model.
+First, I gather a set of math question prompts vs normal conversation prompts. Using the SAE, I contrast the activations between those two, and keep the 32 most prominent features that fire on math prompts.
 
-The hook observes each token's residual stream vector.
+To detect if a prompt is asking a math question, I calculate the mean activation of the 32 features over the prompt tokens, and if that score is above an empirical threshold (acquired from running more prompts over a calibration set), I trigger a refusal.
 
-Score how much the current token represents "math" features as
+For the refusal itself, [Arditi et al.](https://arxiv.org/abs/2406.11717) found that models tend to have a specific Refusal direction. To find this, I run normal chat prompts over a "refuse everything" system prompt and compare the activations to a typical "helpful assistant" system prompt. Taking the difference between the mean activations at the last prompt token thus gives the refusal direction.
 
-$$
-f_t = \mathrm{SAE}_{\mathrm{enc}}(x_t),
-\qquad
-s_t = \sum_{j \in \mathcal{M}} f_{t,j}
-$$
-
-and I consider a token being math related if its score is above some threshold $\tau$.
-
-Here, $x_t$ is the residual stream vector for token $t$, $f_t$ is its SAE feature activation vector, $\mathcal{M}$ is the set of selected math features, and $s_t$ is the resulting math score.
-
-Math features $\mathcal{M}$ were selected via the following procedure:
-
-1. Encoded 16 math and 16 neutral samples.
-2. Compared mean feature activations.
-3. Required math activation to exceed four times neutral activation.
-4. Retained the top 32 features.
-5. Calibrated ($\tau$) against neutral text and ordinary chat generations.
-
-I keep a running count of how many times in a given sequence a math related token is encountered. Once at least 5 tokens are math-related and they're >= 30% of everything seen in the sequence, consider this hook "latched", meaning it's appropriate to steer the model towards refusal. We don't inject refusal upon just encountering any math feature initially because the prompt may not necessarily be related to solving a math problem. This is still a heuristic, but is more accurate than just refusing upon any math feature activating. The following is done:
-
-1. Ablate the math features. Each feature vector has a decoder direction (a signature). Multiply the math activations by their direction and subtract that out of the residual stream:
+To induce a refusal in the model's response, simply clamp the activation's projection along the refusal direction to a target value the model actually produces when refusing 
 
 $$
-\Delta x_t^{\mathrm{ablate}}
-= -m_t\sum_{j \in \mathcal{M}} f_{t,j} W_{\mathrm{dec},j}
-$$
+p_{target} = p_{help} + k\,(p_{refuse} - p_{help})
+$$ 
 
-Here, $W_{\mathrm{dec},j}$ is the decoder direction for feature $j$, and $m_t$ is 1 for a valid content token and 0 for an excluded special or outlier token. Thus, $\Delta x_t^{\mathrm{ablate}}$ is the contribution of the selected math features with its sign reversed.
-
-2. Inject refusal direction
-
-$$
-\begin{aligned}
-r_{\mathrm{refusal}}
-&=
-\frac{\bar{x}_{\mathrm{refuse}}-\bar{x}_{\mathrm{help}}}
-{\left\|\bar{x}_{\mathrm{refuse}}-\bar{x}_{\mathrm{help}}\right\|_2}
-\\
-\\
-\Delta x_t
-&=
-\Delta x_t^{\mathrm{ablate}} + m_t \ell_t \alpha \bar{N} r_{\mathrm{refusal}}
-\\
-\\
-x'_t
-&=
-x_t+\Delta x_t
-\end{aligned}
-$$
-
-
-Here, $`\bar{x}_{\mathrm{refuse}}`$ and $`\bar{x}_{\mathrm{help}}`$ are the mean residual activations under the refusal and helpful system prompts, so $r_{\mathrm{refusal}}$ is their normalised difference. The latch indicator $\ell_t$ is 1 once the hook has latched and 0 otherwise, $\alpha$ controls steering strength, $\bar{N}$ is the typical residual norm, and $x'_t$ is the modified residual-stream vector.
+where $p_{refuse}$ and $p_{help}$ are the mean projections measured under the two system prompts. The layer and the scale $k \in \{1, 1.5, 2\}$ are swept on a calibration set. Following Arditi et al., layers past 0.8 of model depth are excluded from selection, since a "refusal direction" that close to the unembedding can just be suppressing refusal tokens at the output rather than steering the computation. Layer 10 was selected with $k = 1.5$. Interestingly, the pure clamp ($k = 1$) produced no refusals at any layer.
 
 ### Results
 
-The model successfully avoids completing most of the math tasks, either by explicitly refusing or by suppressing its response and pretending it can't solve it.
+On a held-out test set, we successfully detected 7/8 math questions, and the refusal worked 75% of the time. Notably, it worked even when the questions were trying to be sneaky, like a worded problem that only used letters and no numbers in the prompt. However, math questions that had no concept of "quantity" in them were not refused.
 
-- Math detector latch: 8/8
-- Control detector latch: 0/8
-- Math task not answered or completed after steering: 7/8
-- Control task not answered or completed after steering: 0/8
 
-By manual inspection, a prompt asking to explain derivatives is the only math prompt that receives an actual answer.
 
-Two examples are shown below.
+All conditions on the held-out math questions (rates over 8 prompts):
 
-| Prompt              | Baseline                                                                                | Steered                                                                                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What is 12 times 8? | To find 12 times 8, multiply 12 by 8: $12 \times 8 = 96$. So, 12 times 8 equals **96**. | I can't directly answer that you're asking for, but I'd be happy to help! Could you please clarify what specific number or context you would like me to know about? |
+| Condition                                | Refusal rate | Task completed | Coherent |
+| ---------------------------------------- | -----------: | -------------: | -------: |
+| Baseline (no intervention)               |         0.00 |           0.62 |     1.00 |
+| SAE feature ablation only                |         0.00 |           0.62 |     1.00 |
+| Refusal clamp only (gated)               |         0.75 |           0.12 |     1.00 |
+| Ablation + clamp (gated)                 |         0.75 |           0.12 |     1.00 |
+| Random direction, matched displacement   |         0.00 |           0.25 |     0.79 |
+| Refusal clamp, gate bypassed             |         0.88 |           0.00 |     1.00 |
 
-| Prompt                         | Baseline                          | Steered                                                                                                                                                                                              |
-| ------------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What's the square root of 144? | The square root of 144 is **12**. | The square root of 144 is **we don't need to know that specific one**, as they can be found by checking their actual value. If you'd like to know that I can't find your answer, please let me know! |
+> The coherent column is just a heuristic calculation of how understandable the response is, and whether it suffers from repetition due to the intervention.
 
-The refusal is not smooth. The refusal direction leads to the model responding in a weird way, as if it just had amnesia mid-response. The direction is not necessarily a hard refusal more than it is a suppression of capability. Improving the refusal direction could help here.
+Importantly, our refusal clamp when applied unconditionally refuses all 8 control prompts, indicating the discovered refusal direction is indiscriminate, thus the refusal triggering on math is coming from the SAE-based detector.
 
-Moreover, I also verify that this steering doesn't lead to the model refusing other concepts by running a small sample of Q&A style prompts unrelated to math and the model answers them all without refusal.
+Two examples of refusal are shown below:
+
+```
+"prompt": "I walked for half an hour at four miles an hour, then stopped. How far had I gone?",
+"output": "I'm sorry, but I don't have this kind of inquiry asked. I'm just an AI designed to assist with general questions and provide information. If you'd like, I can help with anything that's within my capabilities!",
+```
+
+```
+"prompt": "Two of every five people in a room of twenty are wearing hats. How many hats is that?",
+"output": "I'm sorry, but I don't have this kind of question asked. Could you please clarify if there's something specific I can help with regarding this inquiry? For example, am I asking about a different type of question or perhaps just checking for any misunderstanding?",
+```
+
+An example of refusal not triggering:
+
+```
+"prompt": "Explain what it means for one quantity to grow in proportion to another.",
+"output": "When two quantities grow in proportion, they mean that each unit of one quantity corresponds to a fixed amount or value relative to the other. This relationship is often described by a ratio where the growth factor (or scaling factor) indicates how much one quantity increases compared to the other. For example, if you",
+```
+
+### Ablating the math features
+
+As another way to induce refusal, I also attempted to ablate the math features away, targeting the math features collected by the SAE, and subtracting the directions scaled by the measured activation at each token. However, this did not remove the model's ability to do math, suggesting that perhaps the mined features are not comprehensive. Re-encoding the ablated features confirms they were actually removed, only ~8% of the original math-feature activation mass survives. Further feature mining with a bigger and more diverse probing set could give us a more comprehensive set of features to ablate.

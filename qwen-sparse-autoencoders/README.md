@@ -18,7 +18,7 @@ x^{(\ell)} \leftarrow x^{(\ell)} + \lambda\, s\, \hat{v},
 \qquad
 \hat{v} = \frac{\mu_{\text{angry}} - \mu_{\text{calm}}}{\lVert \mu_{\text{angry}} - \mu_{\text{calm}} \rVert},
 \qquad
-s = \mathbb{E}_{\text{angry}}\!\left[x^{\top}\hat{v}\right] - \mathbb{E}_{\text{neutral}}\!\left[x^{\top}\hat{v}\right]
+s = \mathbb{E}_{\text{angry}} \left[x^{\top}\hat{v}\right] - \mathbb{E}_{\text{neutral}} \left[x^{\top}\hat{v}\right]
 $$
 
 I managed to successfully steer Qwen's outputs towards an angry tone with this method.

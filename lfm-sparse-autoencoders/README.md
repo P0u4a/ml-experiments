@@ -14,8 +14,9 @@ single GPU, I was able to train two separate SAEs, one at layer 6 and another at
 
 One issue I ran into was LFM2.5-230M comes in bf16 precision (like most modern models) but T4 is a very old architecture and doesn't support bf16. So, I had to run LFM in fp16 instead. The only concern was whether this would cause overflow (it has a 5bit exponent which can't handle large values that bf16 could with a 8bit exponent). This can be easily validated though by checking all the hidden states (what we care about) are finite under fp16 and they were.
 
-Note that the SAE itself is trained in FP32. This is because BatchTopK compares many small pre-activations across 16,384 features. FP16 rounding can change their ordering, and small
-reconstruction-loss gradients can underflow or become noisy. FP32 makes the learned inference threshold and optimizer updates more stable.
+Note that the SAE itself is trained in fp32. SAEs typically require higher percision training as they
+rely on **reconstruction loss** (plus a sparsity penalty) as their loss function. The reconstruction loss in
+BatchTopK is measured as the mean squared error and this is susceptible to gradient underflow when the percision is fp16.
 
 During training, BatchTopK enforces 64 active features per token on average across each batch. The trained SAE is exported as a JumpReLU SAE, using a learned activation threshold allowing each token to be encoded independently during inference.
 
@@ -60,11 +61,11 @@ To detect if a prompt is asking a math question, I calculate the mean activation
 
 For the refusal itself, [Arditi et al.](https://arxiv.org/abs/2406.11717) found that models tend to have a specific Refusal direction. To find this, I run normal chat prompts over a "refuse everything" system prompt and compare the activations to a typical "helpful assistant" system prompt. Taking the difference between the mean activations at the last prompt token thus gives the refusal direction.
 
-To induce a refusal in the model's response, simply clamp the activation's projection along the refusal direction to a target value the model actually produces when refusing 
+To induce a refusal in the model's response, simply clamp the activation's projection along the refusal direction to a target value the model actually produces when refusing
 
 $$
 p_{target} = p_{help} + k\,(p_{refuse} - p_{help})
-$$ 
+$$
 
 where $p_{refuse}$ and $p_{help}$ are the mean projections measured under the two system prompts. The layer and the scale $k \in \{1, 1.5, 2\}$ are swept on a calibration set. Following Arditi et al., layers past 0.8 of model depth are excluded from selection, since a "refusal direction" that close to the unembedding can just be suppressing refusal tokens at the output rather than steering the computation. Layer 10 was selected with $k = 1.5$. Interestingly, the pure clamp ($k = 1$) produced no refusals at any layer.
 
@@ -72,18 +73,16 @@ where $p_{refuse}$ and $p_{help}$ are the mean projections measured under the tw
 
 On a held-out test set, we successfully detected 7/8 math questions, and the refusal worked 75% of the time. Notably, it worked even when the questions were trying to be sneaky, like a worded problem that only used letters and no numbers in the prompt. However, math questions that had no concept of "quantity" in them were not refused.
 
-
-
 All conditions on the held-out math questions (rates over 8 prompts):
 
-| Condition                                | Refusal rate | Task completed | Coherent |
-| ---------------------------------------- | -----------: | -------------: | -------: |
-| Baseline (no intervention)               |         0.00 |           0.62 |     1.00 |
-| SAE feature ablation only                |         0.00 |           0.62 |     1.00 |
-| Refusal clamp only (gated)               |         0.75 |           0.12 |     1.00 |
-| Ablation + clamp (gated)                 |         0.75 |           0.12 |     1.00 |
-| Random direction, matched displacement   |         0.00 |           0.25 |     0.79 |
-| Refusal clamp, gate bypassed             |         0.88 |           0.00 |     1.00 |
+| Condition                              | Refusal rate | Task completed | Coherent |
+| -------------------------------------- | -----------: | -------------: | -------: |
+| Baseline (no intervention)             |         0.00 |           0.62 |     1.00 |
+| SAE feature ablation only              |         0.00 |           0.62 |     1.00 |
+| Refusal clamp only (gated)             |         0.75 |           0.12 |     1.00 |
+| Ablation + clamp (gated)               |         0.75 |           0.12 |     1.00 |
+| Random direction, matched displacement |         0.00 |           0.25 |     0.79 |
+| Refusal clamp, gate bypassed           |         0.88 |           0.00 |     1.00 |
 
 > The coherent column is just a heuristic calculation of how understandable the response is, and whether it suffers from repetition due to the intervention.
 

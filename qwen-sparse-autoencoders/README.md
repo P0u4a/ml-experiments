@@ -9,9 +9,9 @@ We first need to know what features are activated when the model is processing "
 
 Taking the mean logprobs of angry and neutral continuations under the same prompt, we measure how much this value increases when a steering direction is applied compared to a baseline.
 
-I also run a small lexical control experiment to confirm the steering directions are triggering on behavioural features not just word-level anger tokens.
+I also run a control experiment to confirm the steering directions are triggering on prompts where the tone is actually angry (i.e. behavioural features) and not just prompts that inlcude angry tokens.
 
-Thus, I calculate the residual mean-difference directions in layer 8 (decided empirically from sweeping all layers). Applying a steering vector lambda proportional to each direction's residual difference (maxed out at 8, since above this outputs become incoherent).
+Thus, I calculated the residual mean-difference directions in layer 8 of the model (decided empirically to be the most effective layer after all layers were scored). Then, I applied a steering vector $\lambda$ to the hidden state, proportional to each direction's residual difference (maxed out at 8, since above this outputs become incoherent).
 
 $$
 x^{(\ell)} \leftarrow x^{(\ell)} + \lambda\, s\, \hat{v},
@@ -21,14 +21,16 @@ x^{(\ell)} \leftarrow x^{(\ell)} + \lambda\, s\, \hat{v},
 s = \mathbb{E}_{\text{angry}} \left[x^{\top}\hat{v}\right] - \mathbb{E}_{\text{neutral}} \left[x^{\top}\hat{v}\right]
 $$
 
-I managed to successfully steer Qwen's outputs towards an angry tone with this method.
+| Steering arm (best per arm on selection split)            | Angry−neutral logprob gain (selection) | Gain (held-out) [95% CI] |
+| --------------------------------------------------------- | -------------------------------------: | -----------------------: |
+| Residual mean-difference (anger, layer 8, λ = 8)          |                                  +0.45 |     +0.51 [+0.26, +0.71] |
+| SAE feature group (passive-aggressive, layer 16, λ = 8)   |                                  +0.26 |                        — |
+| Random directions, matched displacement (95th percentile) |                                  +0.07 |                        — |
+| Lexical control, under the selected direction             |                                      — |     +0.02 [−0.10, +0.09] |
 
-| Steering arm (best per arm on selection split)           | Angry−neutral logprob gain (selection) | Gain (held-out) [95% CI] |
-| -------------------------------------------------------- | -------------------------------:       | -----------------------: |
-| Residual mean-difference (anger, layer 8, λ = 8)         |                             +0.45      |    +0.51 [+0.26, +0.71]  |
-| SAE feature group (passive-aggressive, layer 16, λ = 8)  |                             +0.26      |                       —  |
-| Random directions, matched displacement (95th percentile)|                             +0.07      |                       —  |
-| Lexical control, under the selected direction            |                                 —      |    +0.02 [−0.10, +0.09]  |
+> Results table from experiments that were run
+
+I managed to successfully steer Qwen's outputs towards an angry tone with this method.
 
 Some excerpts:
 
@@ -55,7 +57,7 @@ I also tried to steer using features mined from the SAE, but I did not get any n
 
 While working on this experiment, I used the post-trained (instruction tuned) Qwen model rather than the pre-trained checkpoint that the SAE was trained on. Curiously, the angry steering worked, so what's going on?
 
-This appears to be a well-understood concept in mech interp, where SAEs trained on base models could transfer to fine-tuned checkpoints, depending on the model. See [Kissane et al.](https://www.lesswrong.com/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) where they found the residual stream between chat and base models to be very similar. 
+This appears to be a well-understood concept in mech interp, where SAEs trained on base models could transfer to fine-tuned checkpoints, depending on the model. See [Kissane et al.](https://www.lesswrong.com/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) where they found the residual stream between chat and base models to be very similar.
 
 I ran the same check and found the SAE explains 76% of the residual variance in the instruct model vs 77% on the base model it was trained on. Evidently, the residual stream between the two models is almost identical from the perspective of the SAE. This is further supported by replacing the residual stream with the SAE's reconstruction of it, recovering 91% of the loss on both checkpoints. Moreover, 6 of the top 8 anger feature IDs from the instruct model are also represented in the base model.
 

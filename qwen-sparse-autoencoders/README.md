@@ -23,14 +23,14 @@ $$
 
 | Steering arm (best per arm on selection split)            | Angry−neutral logprob gain (selection) | Gain (held-out) [95% CI] |
 | --------------------------------------------------------- | -------------------------------------: | -----------------------: |
-| Residual mean-difference (anger, layer 8, λ = 8)          |                                  +0.45 |     +0.51 [+0.26, +0.71] |
-| SAE feature group (passive-aggressive, layer 16, λ = 8)   |                                  +0.26 |                        — |
+| Residual mean-difference (anger, layer 8)                 |                                  +0.45 |     +0.51 [+0.26, +0.71] |
+| SAE single feature 23501 (anger, layer 8)                 |                                  +0.39 |     +0.46 [+0.24, +0.65] |
 | Random directions, matched displacement (95th percentile) |                                  +0.07 |                        — |
 | Lexical control, under the selected direction             |                                      — |     +0.02 [−0.10, +0.09] |
 
 > Results table from experiments that were run
 
-I managed to successfully steer Qwen's outputs towards an angry tone with this method.
+I managed to successfully steer Qwen's outputs towards an angry tone using both residual mean difference and SAE targeted feature steering.
 
 Some excerpts:
 
@@ -51,11 +51,9 @@ Please, just call me and tell me to come back. I will be there at 10.
 **Meeting Rescheduled Until 10:00 AM!**
 ```
 
-I also tried to steer using features mined from the SAE, but I did not get any noticable behaviour change this way.
-
 ## Using the base model vs. instruct model
 
-While working on this experiment, I used the post-trained (instruction tuned) Qwen model rather than the pre-trained checkpoint that the SAE was trained on. Curiously, the angry steering worked, so what's going on?
+While working on this experiment, I used the post-trained (instruction tuned) Qwen model rather than the pre-trained checkpoint that the SAE was trained on. Curiously, the angry steering using a candidate feature from the base model worked, so what's going on?
 
 This appears to be a well-understood concept in mech interp, where SAEs trained on base models could transfer to fine-tuned checkpoints, depending on the model. See [Kissane et al.](https://www.lesswrong.com/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) where they found the residual stream between chat and base models to be very similar.
 

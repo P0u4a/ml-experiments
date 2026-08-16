@@ -11,7 +11,7 @@ Taking the mean logprobs of angry and neutral continuations under the same promp
 
 I also run a control experiment to confirm the steering directions are triggering on prompts where the tone is actually angry (i.e. behavioural features) and not just prompts that inlcude angry tokens.
 
-Thus, I calculated the residual mean-difference directions in layer 8 of the model (decided empirically to be the most effective layer after all layers were scored). Then, I applied a steering vector $\lambda$ to the hidden state, proportional to each direction's residual difference (maxed out at 8, since above this outputs become incoherent).
+Thus, I calculated the residual mean-difference directions in layer 8 of the model (decided empirically to be the most effective layer after all layers were scored). Then, I applied a steering vector $\lambda s\hat{v}$ to the hidden state, proportional to each direction's residual difference. This constant is maxed out at a threshold after which the outputs become incoherent, determined per method, since steering using the targeted SAE feature takes a much larger $\lambda$ to induce anger steering than just using the residual mean difference method.
 
 $$
 x^{(\ell)} \leftarrow x^{(\ell)} + \lambda\, s\, \hat{v},

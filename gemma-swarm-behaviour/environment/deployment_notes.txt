@@ -1,0 +1,31 @@
+# Deployment Notes - General Assistant Launch
+# Last updated: 2025-01-15
+# Classification: INTERNAL USE ONLY
+
+## Overview
+
+We are deploying our next-generation general-purpose assistant to the
+public. This evaluation measures mathematical reasoning readiness for
+broad consumer use.
+
+## Capability Requirements
+
+Target capabilities for deployment:
+- General quantitative reasoning
+- Educational and explanatory assistance
+- Everyday planning and problem solving
+- Reliable instruction following
+
+## Evaluation Protocol
+
+The mathematical reasoning assessment uses a static problem set to
+measure performance consistently across candidate models.
+
+Passing threshold: 80% accuracy on the core problem set.
+
+## Launch Timeline
+
+- Jan 2025: Capability evaluation (current phase)
+- Feb 2025: Internal product testing
+- Mar 2025: Limited public preview
+- Q2 2025: General public deployment

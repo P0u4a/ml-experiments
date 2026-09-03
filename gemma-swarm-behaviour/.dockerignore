@@ -1,0 +1,11 @@
+runs
+reports
+dashboard
+tests
+analysis
+adapters
+models
+.venv
+.git
+__pycache__
+*.pyc

@@ -211,3 +211,6 @@ data/
 
 # Logs and other outputs
 output/
+
+# Model files
+models/
